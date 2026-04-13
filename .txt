@@ -1,0 +1,10 @@
+Git Instruction
+
+git add .
+git commit -m "describe what you did"
+git push
+
+
+Activate Venv
+cd ~/Projects/qms/backend
+source venv/bin/activate
