@@ -1,61 +1,54 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from typing import List
-from uuid import UUID, uuid4
-from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import desc
+from typing import Optional
+from datetime import date
+
 from app.db.base import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_current_tenant_id
 from app.models.test_result import TestResult, ResultStatusEnum, EvaluationEnum
+from app.models.product import Product
 from app.models.test_parameter import TestParameter
-from app.models.activity_log import ActivityLog
+from app.models.batch import Batch
 from app.models.user import User
 from app.schemas.test_result import TestResultCreate, TestResultOut
-from decimal import Decimal
 
-router = APIRouter(prefix="/results", tags=["results"])
+router = APIRouter()
 
-def compute_evaluation(
-    value: Decimal,
-    spec_min, spec_max, warn_min, warn_max
-) -> str:
-    if spec_min is not None and value < spec_min:
-        return "fail"
-    if spec_max is not None and value > spec_max:
-        return "fail"
-    if warn_min is not None and value < warn_min:
-        return "warn"
-    if warn_max is not None and value > warn_max:
-        return "warn"
-    return "pass"
 
-@router.post("/", response_model=TestResultOut)
-def create_result(
+@router.post("/results/", response_model=TestResultOut)
+def submit_result(
     payload: TestResultCreate,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    tenant_id: str = Depends(get_current_tenant_id),
 ):
-    param = db.query(TestParameter).filter(
+    parameter = db.query(TestParameter).filter(
         TestParameter.id == payload.parameter_id,
-        TestParameter.tenant_id == current_user.tenant_id,
+        TestParameter.tenant_id == tenant_id,
     ).first()
-    if not param:
+
+    if not parameter:
         raise HTTPException(status_code=404, detail="Parameter not found")
 
-    evaluation = None
-    if param.data_type == "numeric" and payload.value_numeric is not None:
-        evaluation = compute_evaluation(
-            payload.value_numeric,
-            param.spec_min, param.spec_max,
-            param.warn_min, param.warn_max
-        )
-    elif param.data_type == "boolean":
-        evaluation = "pass" if payload.value_boolean else "fail"
-    else:
-        evaluation = "na"
+    # Compute evaluation
+    evaluation = EvaluationEnum.na
+    if payload.value_numeric is not None:
+        v = float(payload.value_numeric)
+        spec_min = float(parameter.spec_min) if parameter.spec_min is not None else None
+        spec_max = float(parameter.spec_max) if parameter.spec_max is not None else None
+        warn_min = float(parameter.warn_min) if parameter.warn_min is not None else None
+        warn_max = float(parameter.warn_max) if parameter.warn_max is not None else None
+
+        if (spec_min is not None and v < spec_min) or (spec_max is not None and v > spec_max):
+            evaluation = EvaluationEnum.fail
+        elif (warn_min is not None and v < warn_min) or (warn_max is not None and v > warn_max):
+            evaluation = EvaluationEnum.warn
+        else:
+            evaluation = EvaluationEnum.pass_
 
     result = TestResult(
-        id=uuid4(),
-        tenant_id=current_user.tenant_id,
+        tenant_id=tenant_id,
         product_id=payload.product_id,
         batch_id=payload.batch_id,
         parameter_id=payload.parameter_id,
@@ -64,39 +57,73 @@ def create_result(
         value_text=payload.value_text,
         status=ResultStatusEnum.submitted,
         evaluation=evaluation,
-        snap_spec_min=param.spec_min,
-        snap_spec_max=param.spec_max,
-        snap_target_value=param.target_value,
+        snap_spec_min=parameter.spec_min,
+        snap_spec_max=parameter.spec_max,
+        snap_target_value=parameter.target_value,
         notes=payload.notes,
         measured_at=payload.measured_at,
         created_by=current_user.id,
     )
-    db.add(result)
 
-    log = ActivityLog(
-        id=uuid4(),
-        tenant_id=current_user.tenant_id,
-        user_id=current_user.id,
-        action="result.submitted",
-        entity_type="test_result",
-        entity_id=result.id,
-        payload={"evaluation": evaluation}
-    )
-    db.add(log)
+    db.add(result)
     db.commit()
     db.refresh(result)
     return result
 
-@router.get("/", response_model=List[TestResultOut])
-def get_results(
-    product_id: UUID = None,
-    limit: int = 50,
+
+@router.get("/results/", response_model=list[TestResultOut])
+def list_results(
+    product_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    evaluation: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    limit: int = Query(100, le=500),
+    offset: int = Query(0),
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    tenant_id: str = Depends(get_current_tenant_id),
 ):
-    query = db.query(TestResult).filter(
-        TestResult.tenant_id == current_user.tenant_id
+    query = (
+        db.query(TestResult)
+        .options(
+            joinedload(TestResult.product),
+            joinedload(TestResult.parameter),
+            joinedload(TestResult.batch),
+            joinedload(TestResult.creator),
+        )
+        .filter(TestResult.tenant_id == tenant_id)
     )
+
     if product_id:
         query = query.filter(TestResult.product_id == product_id)
-    return query.order_by(TestResult.measured_at.desc()).limit(limit).all()
+
+    if status:
+        try:
+            status_enum = ResultStatusEnum(status)
+            query = query.filter(TestResult.status == status_enum)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+
+    if evaluation:
+        try:
+            eval_enum = EvaluationEnum(evaluation)
+            query = query.filter(TestResult.evaluation == eval_enum)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid evaluation: {evaluation}")
+
+    if date_from:
+        query = query.filter(TestResult.measured_at >= date_from)
+
+    if date_to:
+        query = query.filter(TestResult.measured_at <= date_to)
+
+    results = (
+        query
+        .order_by(desc(TestResult.created_at))
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+
+    return results

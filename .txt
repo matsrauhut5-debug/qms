@@ -8,3 +8,9 @@ git push
 Activate Venv
 cd ~/Projects/qms/backend
 source venv/bin/activate
+
+
+start backend
+qms
+cd backend
+uvicorn app.main:app --reload

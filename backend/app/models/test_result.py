@@ -2,6 +2,7 @@ import uuid
 import enum
 from sqlalchemy import Column, String, Boolean, DateTime, Text, Numeric, Enum, text, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from app.db.base import Base
 
 class ResultStatusEnum(str, enum.Enum):
@@ -41,3 +42,9 @@ class TestResult(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    # Relationships
+    product = relationship("Product", foreign_keys=[product_id])
+    parameter = relationship("TestParameter", foreign_keys=[parameter_id])
+    batch = relationship("Batch", foreign_keys=[batch_id])
+    creator = relationship("User", foreign_keys=[created_by])

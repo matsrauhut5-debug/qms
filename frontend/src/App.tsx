@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import EnterResults from './pages/EnterResults';
+import Results from './pages/Results';
 
 const PrivateRoute = ({ children }: { children: React.ReactElement }) => {
   const token = localStorage.getItem('token');
@@ -20,7 +21,10 @@ function App() {
         <Route path="/enter" element={
           <PrivateRoute><EnterResults /></PrivateRoute>
         } />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="/results" element={
+          <PrivateRoute><Results /></PrivateRoute>
+        } />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
   );
