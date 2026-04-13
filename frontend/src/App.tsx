@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import EnterResults from './pages/EnterResults';
 
 const PrivateRoute = ({ children }: { children: React.ReactElement }) => {
   const token = localStorage.getItem('token');
@@ -14,9 +15,10 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/dashboard" element={
-          <PrivateRoute>
-            <Dashboard />
-          </PrivateRoute>
+          <PrivateRoute><Dashboard /></PrivateRoute>
+        } />
+        <Route path="/enter" element={
+          <PrivateRoute><EnterResults /></PrivateRoute>
         } />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

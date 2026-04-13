@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.auth import router as auth_router
+from app.api.routes.products import router as products_router
+from app.api.routes.test_parameters import router as parameters_router
+from app.api.routes.test_results import router as results_router
+from app.api.routes.batches import router as batches_router
 
 def create_app() -> FastAPI:
     application = FastAPI(
@@ -17,6 +21,10 @@ def create_app() -> FastAPI:
     )
 
     application.include_router(auth_router, prefix="/api/v1")
+    application.include_router(products_router, prefix="/api/v1")
+    application.include_router(parameters_router, prefix="/api/v1")
+    application.include_router(results_router, prefix="/api/v1")
+    application.include_router(batches_router, prefix="/api/v1")
 
     @application.get("/health")
     def health_check():
